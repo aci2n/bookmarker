@@ -32,9 +32,9 @@ function makeUniqueSelector(leaf) {
     return branchToSelector(buildBranch(leaf));
 }
 
-const store = (function(key) {
-    function get() {
-        let value = [];
+const store = (function(key, size) {
+    function read(callback) {
+        let history = [];
         const raw = localStorage.getItem(key);
 
         if (raw !== null) {
@@ -42,87 +42,113 @@ const store = (function(key) {
                 const parsed = JSON.parse(raw);
 
                 if (Array.isArray(parsed)) {
-                    value = parsed;
+                    history = parsed;
                 }
             } catch (ignored) {}
         }
 
-        return value;
+        return callback(history);
     }
 
-    function set(value) {
-        const current = get();
-
-        current.push(value);
-        localStorage.setItem(key, JSON.stringify(current));
-
-        return current;
+    function write(history) {
+        localStorage.setItem(key, JSON.stringify(history.slice(-size)));
     }
 
-    return function(value) {
-        if (value) {
-            return set(value);
-        } else {
-            return get();
-        }
+    function push(value) {
+        return read(history => {
+            history.push(value);
+            write(history);
+            return history.length;
+        });
+    }
+
+    function peek() {
+        return read(history => history[history.length - 1]);
+    }
+
+    function pop() {
+        return read(history => {
+            const top = history.pop();
+            write(history);
+            return top;
+        });
+    }
+
+    return {
+        push,
+        peek,
+        pop
     };
-}('bookmark'));
+}('bookmark_v2', 50));
 
-function saveBookmark() {
-    let selectedElement = window.getSelection().anchorNode;
-  
-    if (!selectedElement) {
-        alert(`Error saving bookmark - no element was selected`);
-        return false;
-    }
-  
-    if (selectedElement.nodeType === Node.TEXT_NODE) {
-        selectedElement = selectedElement.parentElement;
+const bookmarker = (function(store, makeUniqueSelector) {
+    function notifyWith(notifier, type, message) {
+        const formattedMessage = `[Bookmarker] ${type.toUpperCase()}: ${message}`;
+        return notifier(formattedMessage);
     }
 
-    const selector = makeUniqueSelector(selectedElement);
-    const element = document.querySelector(selector);
-
-    if (!element) {
-        alert(`Error saving bookmark - ${selector} does not point to an element`);
-        return false;
+    function notify(type, message) {
+        return notifyWith(message => {
+            alert(message);
+            return message;
+        }, type, message);
     }
 
-    if (element !== selectedElement) {
-        alert(`Error saving bookmark - ${selector} does not match the selected element`);
-        return false;
+    function error(type, message) {
+        throw new Error(notify(`${type} error`, message));
     }
 
-    window.localStorage.setItem(bookmarkKey, selector);
-    alert(`Saved bookmark - ${selector}: ${element.textContent}`);
-
-    return true;
-}
-
-function loadBookmark() {
-    const selector = window.localStorage.getItem(bookmarkKey);
-
-    if (!selector) {
-        alert(`Error loading bookmark - no selector was saved`);
-        return false;
+    function success(type, selector, element) {
+        notify(type, `${selector} -> ${element.textContent}`);
     }
 
-    const element = document.querySelector(selector);
-    
-    if (!element) {
-        alert(`Error loading bookmark - ${selector} does not point to an element`);
-        return false;
+    function save() {
+        function saveError(message) {
+            error('save', message);
+        }
+
+        let selectedElement = window.getSelection().anchorNode;
+        if (!selectedElement) saveError('No element was selected');
+        if (selectedElement.nodeType === Node.TEXT_NODE) selectedElement = selectedElement.parentElement;
+        const selector = makeUniqueSelector(selectedElement);
+        const recoveredElement = document.querySelector(selector);
+        if (!recoveredElement) saveError(`${selector} does not point to an element`);
+        if (recoveredElement !== selectedElement) saveError(`${selector} does not match the selected element`);
+        store.push(selector);
+        success('saved', selector, recoveredElement);
     }
 
-    element.scrollIntoView();
-    alert(`Loaded bookmark ${selector}: ${element.textContent}`);
+    function load() {
+        function loadError(message) {
+            error('load', message);
+        }
 
-    return true;
-}
+        const selector = store.peek();
+        if (!selector) loadError(`No selector was saved`);
+        const recoveredElement = document.querySelector(selector);
+        if (!recoveredElement) loadError(`${selector} does not point to an element`);
+        recoveredElement.scrollIntoView();
+        success('loaded', selector, recoveredElement);
+    }
+
+    function pop() {
+        if (notifyWith(confirm, 'warning', 'Pop bookmark?')) {
+            store.pop();
+            load();
+        }
+    }
+
+    return {
+        save,
+        load,
+        pop
+    };
+}(store, makeUniqueSelector));
 
 document.addEventListener('keydown', event => {
     switch (event.key.toLowerCase()) {
-        case 's': return saveBookmark();
-        case 'l': return loadBookmark();
+        case 's': return bookmarker.save();
+        case 'l': return bookmarker.load();
+        case 'p': return bookmarker.pop();
     }
 });
