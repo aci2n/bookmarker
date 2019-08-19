@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name Bookmarker
-// @match file:///D:/Documents/jp/*
+// @author i2n
 // ==/UserScript==
 
-function makeUniqueSelector(leaf) {   
+function makeUniqueSelector(leaf) {
     function buildBranch(leaf) {
         const branch = [];
 
-        for (let node = leaf; node; node = node.parentElement) {      
+        for (let node = leaf; node; node = node.parentElement) {
             branch.push({
                 tag: node.tagName.toLowerCase(),
                 index: node.parentElement ? Array.prototype.indexOf.call(node.parentElement.children, node) : -1
@@ -18,7 +18,7 @@ function makeUniqueSelector(leaf) {
     }
 
     function branchToSelector(branch) {
-        return branch.map(node => {      
+        return branch.map(node => {
             let selector = node.tag;
 
             if (node.index !== -1) {
